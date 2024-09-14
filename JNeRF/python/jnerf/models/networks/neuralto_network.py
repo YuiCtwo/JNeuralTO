@@ -109,6 +109,19 @@ class SDFNetwork(nn.Module):
 
         return gradients
 
+    def get_all(self, x, is_training=True):
+        with jt.enable_grad():
+            tmp = self.execute(x)
+            y, feature = tmp[:, :1], tmp[:, 1:]
+            gradients = jt.grad(
+                y,
+                x,
+                retain_graph=True)
+            # if not is_training:
+            #     return y.detach(), feature.detach(), gradients.detach()
+            # else:
+            return y, feature, gradients
+
 
 # This implementation is borrowed from IDR: https://github.com/lioryariv/idr
 class RenderingNetwork(nn.Module):
@@ -121,7 +134,9 @@ class RenderingNetwork(nn.Module):
                  n_layers,
                  weight_norm=True,
                  squeeze_out=True,
-                 network_type=None):
+                 network_type=None,
+                 output_bias=0.0,
+                 output_scale=1.0):
         super().__init__()
 
         self.cfg = get_cfg()
@@ -156,7 +171,8 @@ class RenderingNetwork(nn.Module):
             setattr(self, "lin" + str(l), lin)
 
         self.relu = nn.ReLU()
-        print(dims)
+        self.output_bias = output_bias
+        self.output_scale = output_scale
 
     def execute(self, points, normals, view_dirs, feature_vectors):
         if self.embedview_fn is not None:
@@ -181,6 +197,7 @@ class RenderingNetwork(nn.Module):
             if l < self.num_layers - 2:
                 x = self.relu(x)
 
+        x = self.output_scale * (x + self.output_bias)
         if self.squeeze_out:
             x = jt.sigmoid(x)
         return x
@@ -299,8 +316,8 @@ class NeuralTOMaterial(nn.Module):
 
     def execute(self, points, normals, feature_vectors, output_gradient=False):
         diffuse_albedo = self.diffuse_albedo_network(points, normals, -normals, feature_vectors).abs()[..., [2, 1, 0]]
-        trans_albedo = self.specular_albedo_network(points, normals, None, feature_vectors).abs().clamp(0, 1)
-        specular_roughness = self.specular_roughness_network(points, normals, None, feature_vectors).abs() + 0.01
+        trans_albedo = self.trans_albedo_network(points, normals, None, feature_vectors).abs().clamp(0, 1)
+        specular_roughness = self.roughness_network(points, normals, None, feature_vectors).abs() + 0.01
         result = {}
         # for i in ["roughness_grad"]:
         #     if output_gradient:

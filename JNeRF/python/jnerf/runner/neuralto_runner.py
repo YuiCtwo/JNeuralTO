@@ -151,7 +151,7 @@ class NeuralTORunner:
                 print(self.base_exp_dir)
                 print('iter:{:8>d} loss = {} lr={}'.format(self.iter_step, loss, self.optimizer.param_groups[0]['lr']))
 
-            if self.iter_step % self.save_freq == 0:
+            if self.iter_step % self.save_freq == 0 or self.iter_step == 1:
                 self.save_checkpoint()
 
             if self.iter_step % self.val_freq == 0:
@@ -207,8 +207,9 @@ class NeuralTORunner:
         checkpoint = {
             'geometry': self.geometry_network.state_dict(),
             'sdf_network': self.geometry_network.sdf_network.state_dict(),
-            'beta': self.geometry_network.beta,
-            'alpha_factor': self.geometry_network.alpha_factor,
+            'beta': self.geometry_network.beta_network,
+            'color_network': self.geometry_network.color_network.state_dict(),
+            'alpha_factor': self.geometry_network.factor,
             'iter_step': self.iter_step,
         }
         jt.save(checkpoint, os.path.join(self.base_exp_dir, 'checkpoints', 'ckpt_{:0>6d}.pkl'.format(self.iter_step)))

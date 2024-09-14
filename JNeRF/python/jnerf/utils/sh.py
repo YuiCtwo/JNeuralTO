@@ -93,10 +93,10 @@ class HardCodedSH:
         """
         Evaluate spherical harmonics bases at unit directions,
         without taking linear combination.
-        At each point, the final result may the be obtained through simple multiplication.
+        At each point, the final result may be obtained through simple multiplication.
         """
         deg = self.degree
-        result = jt.empty((*rays_d.shape[:-1], (deg + 1) ** 2), dtype=rays_d.dtype, device=rays_d.device)
+        result = jt.empty((*rays_d.shape[:-1], (deg + 1) ** 2), dtype=rays_d.dtype)
         result[..., 0] = self.C0
         if deg > 0:
             x, y, z = rays_d.unbind(-1)

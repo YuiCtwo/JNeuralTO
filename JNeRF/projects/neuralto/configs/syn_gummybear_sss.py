@@ -1,9 +1,31 @@
 optim = dict(
-    type='Adam',
-    lr=1e-2,
-    eps=1e-15,
-    betas=(0.9, 0.99),
+    material=dict(
+        type='Adam',
+        lr=2e-4,
+        eps=1e-15,
+        betas=(0.9, 0.99),
+    ),
+    render=dict(
+        type='Adam',
+        lr=2e-4,
+        eps=1e-15,
+        betas=(0.9, 0.99),
+    ),
+    light=dict(
+        type='Adam',
+        lr=2e-4,
+        eps=1e-15,
+        betas=(0.9, 0.99),
+    ),
+    sdf=dict(
+        type='Adam',
+        lr=1e-7,
+        eps=1e-15,
+        betas=(0.9, 0.99),
+    )
+
 )
+
 
 dataset = dict(
     type='BlenderDatasetStage2',
@@ -40,7 +62,7 @@ encoder = dict(
 )
 
 ckpt = dict(
-    stage1_ckpt_path=None,
+    stage1_ckpt_path="/home/user/JNeuralTO/JNeRF/log/gummybear/womask/checkpoints/ckpt_100000.pkl",
     model_ckpt_path=None,
     ckpt_file=None
 )
@@ -59,7 +81,14 @@ lr = dict(
 )
 
 model = dict(
-    type='NeuS',
+    d_out=257,
+    d_hidden=256,
+    n_layers=8,
+    skip_in=[4],
+    bias=0.5,
+    scale=1.0,
+    geometric_init=True,
+    weight_norm=True,
 )
 
 material = dict(
@@ -106,7 +135,7 @@ light = dict(
 )
 
 render = dict(
-    add_sss="all",
+    add_ss="all",
     MipSSS=dict(
         mipmap_scale = 0.577,
         dirs_multires = 4,
@@ -117,10 +146,10 @@ render = dict(
 )
 
 
-base_exp_dir = './log/gummybear/womask'
+base_exp_dir = './log/gummybear_s2/womask'
 recording = ['./', './models']
 save_freq = 10000
-batch_size = 1024
+batch_size = 100
 end_iter = 50001
 report_freq = 1000
 val_freq = 5000

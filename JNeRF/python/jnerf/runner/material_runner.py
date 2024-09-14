@@ -20,12 +20,16 @@ class CoLocatedPointLight(nn.Module):
         super().__init__()
         self.light = jt.Var([init_light_intensity])
 
-    def forward(self):
+    def execute(self):
         return self.light
 
 
 def to8b(x):
     return np.clip(x*255.0, 0.0, 255.0).astype(np.uint8)
+
+# log10(x) = log(x) / log(10)
+def log10(x):
+    return jt.log(x) / jt.log(jt.array(np.array([10.])))
 
 @jt.no_grad()
 def intersect_sphere(ray_o, ray_d, r):
@@ -40,21 +44,26 @@ def intersect_sphere(ray_o, ray_d, r):
 
     tmp = r * r - jt.sum(p * p, dim=-1)
     mask_intersect = tmp > 0.0
-    d2 = jt.sqrt(jt.clamp(tmp, min=0.0)) / jt.norm(ray_d, dim=-1)
-    return mask_intersect, jt.clamp(d1 - d2, min=0.0), d1 + d2
+    d2 = jt.sqrt(jt.clamp(tmp, min_v=0.0)) / jt.norm(ray_d, dim=-1)
+    return mask_intersect, jt.clamp(d1 - d2, min_v=0.0), d1 + d2
 
 def masked_l1_rgb_loss(pred, gt, mask):
-    mask_sum = mask.sum() + 1e-6
+    # mask_sum = mask.sum() + 1e-6
     color_error = (pred - gt) * mask
-    color_fine_loss = nn.l1_loss(color_error, jt.zeros_like(color_error), reduction="sum") / mask_sum
+    color_fine_loss = nn.l1_loss(color_error, jt.zeros_like(color_error))
     return color_fine_loss
 
+def mse2psnr(x): return -10. * jt.log(x) / jt.log(jt.array(np.array([10.])))
+def img2mse(x, y): return jt.mean((x - y) ** 2)
 
 def masked_psnr(pred, gt, mask):
-    mask_sum = mask.sum() + 1e-6
-    psnr = 20.0 * jt.log10(1.0 / (((pred - gt) ** 2 * mask).sum() / (mask_sum * 3.0)).sqrt())
-    return psnr
+    mse = img2mse(pred*mask, gt*mask)
+    return mse2psnr(mse)
 
+# def masked_psnr(pred, gt, mask):
+#     mask_sum = mask.sum() + 1e-6
+#     psnr = 20.0 * log10(1.0 / (((pred - gt) ** 2 * mask).sum() / (mask_sum * 3.0)).sqrt())
+#     return psnr
 
 
 class NeuralTOMaterialRunner:
@@ -75,7 +84,7 @@ class NeuralTOMaterialRunner:
         self.out_dir = self.conf.base_exp_dir
         self.save_freq = self.conf.save_freq
         self.patch_size = self.conf.batch_size
-        self.num_iters = self.conf.end_iters
+        self.num_iters = self.conf.end_iter
         self.report_freq = self.conf.report_freq
         self.val_freq = self.conf.val_freq
         self.log_freq = self.conf.log_freq
@@ -87,10 +96,8 @@ class NeuralTOMaterialRunner:
 
         # ckpt parameter setup
         self.stage1_ckpt_path = self.conf.ckpt.stage1_ckpt_path
-        # checkpoint dir
-        self.model_ckpt_path = self.conf.ckpt.model_ckpt_path
         # specify checkpoint file
-        self.ckpt = self.conf.ckpt.ckpt_file
+        self.ckpt = self.conf.ckpt.model_ckpt_path
 
         # background setting
         if self.conf.background_color is not None:
@@ -128,6 +135,8 @@ class NeuralTOMaterialRunner:
         self.out_dir = os.path.join(self.out_dir, str(self.patch_size))
 
         self.alpha0 = 0.35
+        os.makedirs(self.out_dir, exist_ok=True)
+        os.makedirs(os.path.join(self.out_dir, 'checkpoints'), exist_ok=True)
 
     @jt.no_grad()
     def raytrace_camera(self, ray_o, ray_d, ray_d_norm, mask, r=1):
@@ -147,8 +156,7 @@ class NeuralTOMaterialRunner:
             min_dis,
             max_dis,
             mask_intersect & mask,
-            rays_d_norm,
-            back_sampling=False
+            rays_d_norm
         )
         # additional processing
         for k in results.keys():
@@ -234,24 +242,24 @@ class NeuralTOMaterialRunner:
 
     def load_stage1_ckpt(self):
         print("Reloading model from stage-1 checkpoint: ", self.stage1_ckpt_path)
-        ckpt = jt.load(self.stg1_ckpt_path)
+        ckpt = jt.load(self.stage1_ckpt_path)
         try:
             self.geometry_model.load_state_dict(ckpt["sdf_network"])
-            laplace_beta = ckpt["laplace_beta"]
-            laplace_factor = ckpt["laplace_factor"]
+            laplace_beta = ckpt["beta"]
+            laplace_factor = ckpt["alpha_factor"]
             self.render_model.laplace_factor = laplace_factor
             self.render_model.laplace_beta = laplace_beta
             print("Load laplace param: beta={}, factor={}".format(self.render_model.laplace_beta,
                                                                   self.render_model.laplace_factor))
             
-            self.material_model.diffuse_albedo_network.load_state_dict(ckpt["diffuse_network"])
+            self.material_model.diffuse_albedo_network.load_state_dict(ckpt["color_network"])
             
         except Exception as e:
             print("Load failed due to: ", e)
 
     def load_ckpt(self):
         if self.ckpt is None:
-            ckpt_dir = os.path.join(self.model_ckpt_path, str(self.patch_size), "checkpoints")
+            ckpt_dir = os.path.join(self.out_dir, "checkpoints")
             ckpt_fpaths = glob.glob(os.path.join(ckpt_dir, "ckpt_*.pth"))
             path2step = lambda x: int(os.path.basename(x)[len("ckpt_"): -4])
             ckpt_fpaths = sorted(ckpt_fpaths, key=path2step)
@@ -271,11 +279,11 @@ class NeuralTOMaterialRunner:
             print("Load failed due to: ", e)
 
     def init_model(self):
-        self.material_model_param = []
+        # self.material_model_param = []
         # material model
         self.material_model = build_from_cfg(self.conf.material, NETWORKS)
         # self.material_model = NeuralTOMaterial(self.conf["model.material"])
-        self.material_model_param += list(self.material_model.parameters())
+        # self.material_model_param += list(self.material_model.parameters())
         # sdf model
         self.geometry_model = SDFNetwork(**self.conf.model)
         # self.geometry_model = SDFNetwork(**self.conf["model.geometry_network.sdf_network"]).to(self.device)
@@ -287,7 +295,7 @@ class NeuralTOMaterialRunner:
         self.render_model = NeuralTOScatterRenderer(**self.conf.render)
         # self.scattering_model = MipSSS()
         # self.render_model.network_setup(self.scattering_model)
-        self.render_model_param = list(self.render_model.parameters())
+        # self.render_model_param = list(self.render_model.parameters())
 
     def save_ckpt(self):
         checkpoint = {
@@ -309,15 +317,15 @@ class NeuralTOMaterialRunner:
         )
 
     def init_optimizer(self):
-        material_optimizer = jt.optim.Adam(self.material_model_param, lr=self.lr_material)
-        # if self.point_reparam:
-        sdf_optimizer = jt.optim.Adam(self.geometry_model.parameters(), lr=self.lr_geometry)
-        self.optimizer_dict["sdf_optimizer"] = sdf_optimizer
-        render_optimizer = jt.optim.Adam(self.render_model_param, lr=self.lr_render)
+        material_optimizer = build_from_cfg(self.conf.optim.material, OPTIMS, params=self.material_model.parameters())
+        sdf_optimizer = build_from_cfg(self.conf.optim.sdf, OPTIMS, params=self.geometry_model.parameters())
+        render_optimizer = build_from_cfg(self.conf.optim.render, OPTIMS, params=self.render_model.parameters())
+        light_optimizer = build_from_cfg(self.conf.optim.light, OPTIMS, params=self.light_model.parameters())
 
+        self.optimizer_dict["sdf_optimizer"] = sdf_optimizer
         self.optimizer_dict["material_optimizer"] = material_optimizer
         self.optimizer_dict["render_optimizer"] = render_optimizer
-        self.optimizer_dict["light_optimizer"] = jt.optim.Adam(self.light_model.parameters(), lr=self.lr_light)
+        self.optimizer_dict["light_optimizer"] = light_optimizer
 
     def train(self):
         for it in tqdm.tqdm(range(self.num_iters)):
@@ -325,14 +333,15 @@ class NeuralTOMaterialRunner:
             self.cur_iter = it
             # gen random idx
             idx = np.random.randint(0, self.n_training_images - 1)
-            data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
-            rays_o, rays_d, rays_d_norm, true_rgb, mask, true_rgb_grad = (
+            # TODO: implement method used in our torch code: gen_masked_random_rays_at
+            # data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
+            data = self.train_dataset.gen_random_rays_at(idx, self.patch_size ** 2)
+            rays_o, rays_d, rays_d_norm, true_rgb, mask = (
                 data[:, :3],
                 data[:, 3:6],
                 data[:, 6:7],
                 data[:, 7:10],
                 data[:, 10:11],
-                data[:, 11:12],
             )
             gt_mask = mask.bool()
             # set radius for mipmap_r
@@ -374,8 +383,7 @@ class NeuralTOMaterialRunner:
 
                 for one in self.optimizer_dict:
                     self.optimizer_dict[one].zero_grad()
-                loss.backward()
-                for one in self.optimizer_dict:
+                    self.optimizer_dict[one].backward(loss, retain_graph=True)
                     self.optimizer_dict[one].step()
 
             if self.cur_iter % self.save_freq == 0:
@@ -421,7 +429,7 @@ class NeuralTOMaterialRunner:
         for x in list(results.keys()):
             results[x] = results[x].detach().cpu().numpy()
 
-        gt_color_im = gt_color_resized.detach().cpu().numpy()
+        gt_color_im = gt_color_resized
         color_im = results["color"]
         diffuse_color_im = results["diffuse_color"]
         specular_color_im = results["specular_color"]
@@ -458,7 +466,7 @@ class NeuralTOMaterialRunner:
 
         psnr = masked_psnr(color_im_jt, gt_color_jt, gt_mask_jt)
 
-        print("iter-{}, img_idx-{} result: PSNR={}, LPIPS={}, SSIM={}".format(
+        print("iter-{}, img_idx-{} result: PSNR={}".format(
             self.cur_iter,
             idx,
             psnr,
@@ -534,9 +542,9 @@ class NeuralTOMaterialRunner:
 
 
             diffuse_albedo[interior_mask] = interior_material["diffuse_albedo"]
-            specular_albedo[interior_mask] = interior_material["specular_albedo"]
+            specular_albedo[interior_mask] = interior_material["trans_albedo"]
             specular_roughness[interior_mask] = interior_material["specular_roughness"]
-            roughness_grad[interior_mask] = interior_material["roughness_grad"]
+            # roughness_grad[interior_mask] = interior_material["roughness_grad"]
             # albedo_grad[interior_mask] = interior_material["albedo_grad"]
             # back raytracer
             
@@ -568,7 +576,7 @@ class NeuralTOMaterialRunner:
             results = self.render_model(
                 self.light_model, self.geometry_model,
                 interior_material["diffuse_albedo"],
-                interior_material["specular_albedo"],
+                interior_material["trans_albedo"],
                 interior_material["specular_roughness"],
                 points, normals, surf_distance, -rays_d,  # !!! rays_d same side with normal
                 thickness=thickness, light_o=rays_o,

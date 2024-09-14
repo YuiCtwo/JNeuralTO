@@ -4,14 +4,12 @@ from jittor import nn
 class SphereTracer(nn.Module):
     """Implementing Sphere Tracing using Jittor"""
 
-    def __init__(
-        self, 
-        sdf_threshold=5e-5,
-        sphere_tracing_iters=32,
-        n_steps=128,
-        max_num_rays=200000
-    ):
+    def __init__(self, sdf_threshold=2e-5,
+                 sphere_tracing_iters=32,
+                 n_steps=128,
+                 max_num_rays=200000):
         # sdf values of convergent points must be inside [-sdf_threshold, sdf_threshold]
+        super().__init__()
         self.coarse_sdf_threshold = sdf_threshold * 4
         self.sdf_threshold = sdf_threshold
         # sphere tracing hyper-params
@@ -66,7 +64,7 @@ class SphereTracer(nn.Module):
                             ],
                         )
                         for x in results.keys()
-                        if isinstance(results[x], jt.Tensor)
+                        if isinstance(results[x], jt.Var)
                     ]
                 )
             else:
@@ -74,7 +72,7 @@ class SphereTracer(nn.Module):
                     merge_results[x].append(results[x])
 
         for x in list(merge_results.keys()):
-            results = jt.concatenate(merge_results[x], dim=0)
+            results = jt.concat(merge_results[x], dim=0)
             merge_results[x] = results
 
         return merge_results
@@ -88,8 +86,6 @@ class SphereTracer(nn.Module):
             acc_start_dis,
         ) = self.sphere_tracing(sdf, ray_o, ray_d, min_dis, max_dis, work_mask)
         sampler_work_mask = unfinished_mask_start
-        back_sampled_points = jt.zeros_like(curr_start_points)
-        back_sampled_distance = jt.zeros_like(acc_start_dis)
 
         if sampler_work_mask.sum() > 0:
             tmp_mask = (curr_start_sdf[sampler_work_mask] > 0.0).float()
@@ -145,7 +141,7 @@ class SphereTracer(nn.Module):
 
         convergent_mask = (
                 work_mask
-                & ~unfinished_mask_start
+                & jt.logical_not(unfinished_mask_start)
                 & (curr_sdf_start.abs() <= self.sdf_threshold)
                 & (acc_start_dis < max_dis)
         )
@@ -171,14 +167,14 @@ class SphereTracer(nn.Module):
         sdf_val = []
         for pnts in jt.split(points.reshape(-1, 3), self.max_num_rays, dim=0):
             sdf_val.append(sdf(pnts))
-        sdf_val = jt.concatenate(sdf_val, dim=0).reshape(-1, n_steps)
+        sdf_val = jt.concat(sdf_val, dim=0).reshape(-1, n_steps)
         sampler_pts = jt.zeros_like(ray_d)
         sampler_sdf = jt.zeros_like(min_dis)
         sampler_dis = jt.zeros_like(min_dis)
-        tmp = jt.sign(sdf_val) * jt.arange(n_steps, 0, -1).float().to(sdf_val.device).reshape(
+        tmp = jt.nn.sign(sdf_val) * jt.arange(n_steps, 0, -1).reshape(
             1, n_steps
         )
-        min_val, min_idx = jt.min(tmp, dim=-1)
+        min_val, min_idx = jt.arg_reduce(tmp, 'min', dim=-1, keepdims=False)
         rootfind_work_mask = (min_val < 0.0) & (min_idx >= 1)
         n_rootfind = rootfind_work_mask.sum()
         if n_rootfind > 0:

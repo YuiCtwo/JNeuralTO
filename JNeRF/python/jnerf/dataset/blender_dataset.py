@@ -71,8 +71,8 @@ class BlenderDataset:
         self.world_scale = self.scale_mats_np[0][0, 0]
         self.world_trans = 0.0
 
-        object_bbox_min = np.array([-1.51, -1.51, -1.51, 1.0])
-        object_bbox_max = np.array([1.51, 1.51, 1.51, 1.0])
+        object_bbox_min = np.array([-1.21, -1.21, -1.21, 1.0])
+        object_bbox_max = np.array([1.21, 1.21, 1.21, 1.0])
         # Object scale mat: region of interest to **extract mesh**
         object_scale_mat = np.eye(4).astype(np.float32)
         object_bbox_min = np.linalg.inv(self.scale_mats_np[0]) @ object_scale_mat @ object_bbox_min[:, None]
@@ -115,8 +115,8 @@ class BlenderDataset:
         """
         pixels_x = jt.randint(low=0, high=self.W, shape=[batch_size])
         pixels_y = jt.randint(low=0, high=self.H, shape=[batch_size])
-        color = self.images[img_idx].squeeze(dim=0)[(pixels_y, pixels_x)]  # batch_size, 3
-        mask = self.masks[img_idx].squeeze(dim=0)[(pixels_y, pixels_x)]  # batch_size, 3
+        color = self.images[img_idx][(pixels_y, pixels_x)]  # batch_size, 3
+        mask = self.masks[img_idx][(pixels_y, pixels_x)]  # batch_size, 3
         point = jt.stack([pixels_x, pixels_y, jt.ones_like(pixels_y)], dim=-1).float()  # batch_size, 3
         bs = point.shape[0]
         point = jt.matmul(self.intrinsics_all_inv[img_idx, :3, :3].expand(bs, 1, 1), point[:, :, None])  # batch_size, 3
@@ -124,7 +124,7 @@ class BlenderDataset:
         rays_v = point / jt.norm(point, p=2, dim=-1, keepdim=True, eps=1e-6)  # batch_size, 3
         rays_v = jt.matmul(self.pose_all[img_idx, :3, :3].expand(bs, 1, 1), rays_v[:, :, None])  # batch_size, 3
         rays_v = rays_v.squeeze(dim=2)
-        rays_o = self.pose_all[img_idx, None, :3, 3].expand(rays_v.shape).squeeze(dim=0)  # batch_size, 3
+        rays_o = self.pose_all[img_idx, None, :3, 3].expand(rays_v.shape)  # batch_size, 3
         # print(rays_o.shape)
         # print(color.shape)
         # print(mask.shape)
@@ -185,8 +185,8 @@ class BlenderDatasetStage2(BlenderDataset):
     def __init__(self, dataset_dir, d_type="train"):
         super().__init__(dataset_dir, d_type)
 
-        self.images_np = self.images_np[..., ::-1].astype(np.float32)
-        self.images = jt.from_numpy(self.images_np).cpu()
+        # self.images_np = self.images_np[..., ::-1].astype(np.float32)
+        # self.images = jt.array(self.images_np)
 
         # does not use normalize
         # _, __, self.r_radius = normalize_camera_poses_jt(self.pose_origin, target_radius=1)
@@ -210,10 +210,10 @@ class BlenderDatasetStage2(BlenderDataset):
         l = int(1 / factor)
         tx = jt.linspace(0, self.W - 1, self.W // l)
         ty = jt.linspace(0, self.H - 1, self.H // l)
-        pixels_x, pixels_y = jt.meshgrid(tx, ty, indexing="ij")
+        pixels_x, pixels_y = jt.meshgrid(tx, ty)
         p = jt.stack([pixels_x, pixels_y, jt.ones_like(pixels_y)], dim=-1)  # W, H, 3
         p = self.jt_matmul(self.intrinsics_all_inv[img_idx, None, None, :3, :3], p[:, :, :, None]).squeeze(dim=3)  # W, H, 3
-        rays_v_norm = jt.norm(p, ord=2, dim=-1, keepdim=True)
+        rays_v_norm = jt.norm(p, dim=-1, keepdim=True)
         rays_v = p / rays_v_norm  # W, H, 3
         rays_v = self.jt_matmul(self.pose_all[img_idx, None, None, :3, :3], rays_v[:, :, :, None]).squeeze(dim=3)  # W, H, 3
         rays_o = self.pose_all[img_idx, None, None, :3, 3].expand(rays_v.shape)  # W, H, 3

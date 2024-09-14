@@ -3,8 +3,6 @@ import jittor.nn as nn
 import numpy as np
 
 from jnerf.models.samplers.neuralto_render import MipSSS
-import json
-json.loads()
 
 def smithG1(cosTheta, alpha):
     sinTheta = jt.sqrt(1.0 - cosTheta * cosTheta)
@@ -47,12 +45,12 @@ class NeuralTOScatterRenderer(nn.Module):
         self.ior = 1.25
         self.add_ss = kw["add_ss"]
         self.tone_mapping = None
-        self.render_model = MipSSS(**kw["MipSSS"])
+        self.render_model = MipSSS(**(kw["MipSSS"]))
     
     def network_setup(self, scatter_model):
         self.render_model = scatter_model
    
-    def forward(self, light_model, sdf_network,
+    def execute(self, light_model, sdf_network,
                 diffuse_albedo, trans_albedo, specular_roughness,
                 surf_points, surf_normal, surf_distance, viewdir,
                 thickness, light_o, conv_mask, rays_t):
@@ -63,7 +61,7 @@ class NeuralTOScatterRenderer(nn.Module):
         # =================
         light_intensity = light / (surf_distance * surf_distance + 1e-10)
         dot = jt.sum(viewdir * surf_normal, dim=-1, keepdim=True)
-        dot = jt.clamp(dot, min=0.00001, max=0.99999)  # must be very precise; cannot be 0.999
+        dot = jt.clamp(dot, min_v=0.00001, max_v=0.99999)  # must be very precise; cannot be 0.999
         alpha = specular_roughness
         cosTheta2 = dot * dot
         root = cosTheta2 + (1.0 - cosTheta2) / (alpha * alpha + 1e-10)

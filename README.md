@@ -20,16 +20,36 @@ Installing cupy for JNeuS
 pip install cupy-cuda113
 ```
 
-You can testing your enviroment using the command below:
-```bash
-python tools/test_env.py
-```
-
-# Dataset Setup
+# Configuration Setup
 
 
 # Running
 
+- For reconstruction in Stage1, run the command below.
+It takes about 5h in one NVIDIA 3090 GPU using the example config file.
+
+```shell
+python tools/run_net.py \
+       --config-file ./projects/neuralto/configs/syn_gummybear_womask.py \
+       --type neuralTO_recon \
+       --task train
 ```
-python tools/run_net.py --config-file ./projects/neuralto/configs/syn_gummybear_womask.py --type neuralTO_recon --task train
+
+- You can extract mesh using this command. Make sure that you have set a proper bounding box for the model. By default, we use 
+`object_bbox_min=[-1.21, -1.21, -1.21]` and `object_bbox_max=[1.21, 1.21, 1.21]`
+```shell
+python tools/run_net.py \
+       --config-file ./projects/neuralto/configs/syn_gummybear_womask.py \
+       --type neuralTO_recon \
+       --task validate_mesh
+```
+
+- For learning scattering property in Stage2, we rely on the reconstructed geometry.
+If all things are done, run the command below:
+
+```shell
+python tools/run_net.py \
+       --config-file ./projects/neuralto/configs/syn_gummybear_sss.py \
+       --type neuralTO_render \
+       --task train
 ```

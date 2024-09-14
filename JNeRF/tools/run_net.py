@@ -46,7 +46,7 @@ def main():
     
     args = parser.parse_args()
 
-    assert args.type in ["neuralTO_recon","neus"],f"{args.type} not support, please choose [novel_view, mesh]"
+    assert args.type in ["neuralTO_recon","neus", "neuralTO_render"],f"{args.type} not support, please choose [novel_view, mesh]"
     assert args.task in ["train","render", "validate_mesh"],f"{args.task} not support, please choose [train, test, render, validate_mesh]"
     is_continue = False
     if args.task == 'validate_mesh':

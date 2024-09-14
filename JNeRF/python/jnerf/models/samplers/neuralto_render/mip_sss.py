@@ -1,6 +1,8 @@
 import jittor as jt
 from jittor import nn
 import numpy as np
+
+from jnerf.models.samplers.neuralto_render.recon_renderer import laplace
 from jnerf.utils.miputils import conical_frustum_to_gaussian, integrated_pos_enc
 from jnerf.utils.sh import HardCodedSH
 from jnerf.models.position_encoders.freq_encoder import FrequencyEncoder
@@ -66,9 +68,19 @@ class MipSSS(nn.Module):
             nn.Linear(self.feature_dim+1, 1),
             jt.nn.Softplus(),
         ])
-        self.relu = nn.ReLU(inplace=True)
-        self.l_embedder, self.l_input_dim = FrequencyEncoder(self.dirs_multires, 3, include_input=False)
-        self.p_embedder, self.points_input_dim = FrequencyEncoder(self.points_multires, 3, include_input=False)
+        self.relu = nn.ReLU()
+
+        self.l_embedder = FrequencyEncoder(
+            multires=self.dirs_multires,
+            input_dims=3,
+            include_input=False)
+        self.l_input_dim = self.l_embedder.out_dim
+        self.p_embedder = FrequencyEncoder(
+            multires=self.points_multires,
+            input_dims=3,
+            include_input=False)
+        self.points_input_dim = self.p_embedder.out_dim
+
         self.F_dim = self.points_input_dim
         feature_mlp_layers = [nn.Linear(self.F_dim, self.feature_dim)]
         for i in range(3):
@@ -111,9 +123,8 @@ class MipSSS(nn.Module):
             nn.Linear(self.sca_feature_dim, self.num_coeff),
         ])
 
-        self.initialize()
         self.raw2alpha = lambda raw, dists: 1. - jt.exp(-raw * dists)
-        self.laplace = lambda sdf, beta: 1. * (0.5 + 0.5 * sdf.sign() * jt.expm1(-sdf.abs() / beta))
+        # self.laplace = lambda sdf, beta: 1. * (0.5 + 0.5 * sdf.sign() * jt.expm1(-sdf.abs() / beta))
 
         self.sh_sampled_dirs = jt.array(
             standard_fibonacci_sampling_np(self.sphere_num_samples))  # [sphere_num_samples, 3]
@@ -122,16 +133,15 @@ class MipSSS(nn.Module):
     def initialize(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
+                nn.init.kaiming_normal_(m.weight)
 
     def execute(self, base_r, distance, rays_o, rays_d, light_I, light_o, surface_distance, sdf_network,
                 beta, factor, diffuse_albedo):
 
         num_rays = rays_o.shape[0]
-        device = rays_o.device
 
         # sample mid points
-        t_samples = jt.linspace(0., 1., self.nerf_num_samples, device=device)
+        t_samples = jt.linspace(0., 1., self.nerf_num_samples)
         t_samples = jt.broadcast(t_samples, [num_rays, self.nerf_num_samples])
         t_samples = distance * t_samples  # use real values of t instead of proportions of far
         pts = rays_o[..., None, :] + rays_d[..., None, :] * t_samples[..., :, None]  # [num_rays, num_samples, 3]
@@ -143,7 +153,7 @@ class MipSSS(nn.Module):
         # sdf_normals = gradients / (gradients.norm(dim=-1, keepdim=True) + 1e-7)
         # sdf_normals = sdf_normals.reshape(num_rays, self.nerf_num_samples, 3)
         grad = gradients.reshape(num_rays, self.nerf_num_samples, 3)
-        sigma = factor * self.laplace(_y, beta+0.0001)
+        sigma = factor * laplace(_y, beta+0.0001)
         sigma = sigma.reshape(num_rays, self.nerf_num_samples, 1)
 
         # predict density
@@ -178,7 +188,7 @@ class MipSSS(nn.Module):
             albedo = diffuse_albedo[:, None, :].repeat(1, self.nerf_num_samples, 1)
 
         # multi scattering
-        t_samples_mips = jt.linspace(0., 1., self.nerf_num_samples, device=device)
+        t_samples_mips = jt.linspace(0., 1., self.nerf_num_samples)
         t_samples_mips = surface_distance + distance * t_samples_mips
         t_samples_mips = jt.broadcast(t_samples_mips, [num_rays, self.nerf_num_samples])
         Lmf = None
@@ -207,10 +217,10 @@ class MipSSS(nn.Module):
         sh_radiance = self.sh.eval_sh_bases(sh_sampled_d)  # [num_rays, num_sh_samples, ch]
         sh_radiance = sh_radiance.permute(0, 2, 1)  # [num_rays, ch, num_sh_samples]
 
-
-        S = jt.clamp(jt.bmm(sh_weights, sh_radiance))
-        Lm = jt.mean(S, dim=-1, keepdim=True)
-        Lm = Lm.repeat(1, 1, 3)
+        Lm = jt.zeros_like(L)
+        for i, sh_w in enumerate(jt.split(sh_weights, 16, dim=-1)):
+            S = jt.clamp(nn.bmm(sh_w, sh_radiance))
+            Lm[:, :, i] = jt.mean(S, dim=-1)
 
         Lm = Lm * albedo
         Ls = Ls * albedo

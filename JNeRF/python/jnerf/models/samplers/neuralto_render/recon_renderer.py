@@ -14,7 +14,7 @@ def expm1(value):
 
 
 def laplace(sdf, beta):
-    # Seems that jittor does not has the function expm1, which provides greater precision than exp(x) - 1 for small values of x
+    # Seems that jittor does not have the function expm1, which provides greater precision than exp(x) - 1 for small values of x
     # res = torch.where(x >= 0, 0.5 * torch.exp(-x / beta), 1 - 0.5 * torch.exp(x / beta))
     beta_ = beta + 0.00001  # min of beta
     # alpha = 1 / beta_
