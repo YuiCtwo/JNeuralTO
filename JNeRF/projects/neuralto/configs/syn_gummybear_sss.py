@@ -155,5 +155,5 @@ report_freq = 1000
 val_freq = 5000
 log_freq = 5000
 
-use_mask = False
+use_mask = True  # make sure that you have a mask!
 background_color = None

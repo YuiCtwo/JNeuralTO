@@ -333,9 +333,10 @@ class NeuralTOMaterialRunner:
             self.cur_iter = it
             # gen random idx
             idx = np.random.randint(0, self.n_training_images - 1)
-            # TODO: implement method used in our torch code: gen_masked_random_rays_at
-            # data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
-            data = self.train_dataset.gen_random_rays_at(idx, self.patch_size ** 2)
+            if self.use_mask:
+                data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
+            else:
+                data = self.train_dataset.gen_random_rays_at(idx, self.patch_size ** 2)
             rays_o, rays_d, rays_d_norm, true_rgb, mask = (
                 data[:, :3],
                 data[:, 3:6],
@@ -546,8 +547,8 @@ class NeuralTOMaterialRunner:
             specular_roughness[interior_mask] = interior_material["specular_roughness"]
             # roughness_grad[interior_mask] = interior_material["roughness_grad"]
             # albedo_grad[interior_mask] = interior_material["albedo_grad"]
+
             # back raytracer
-            
             rays_t = rays_d
 
             mask_intersect_split, min_dis, max_dis = intersect_sphere(points, -rays_t, r=self.train_dataset.r_radius)
@@ -621,5 +622,5 @@ class NeuralTOMaterialRunner:
         return self.validate_image_all()
 
     def validate_mesh(self):
-        # this is a dummy function
+        # dummy function
         print("No use for material model")

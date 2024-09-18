@@ -1,5 +1,7 @@
 # NeuralTO
 
+![](./assets/teaser_compress.png)
+
 Implementation of paper *NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects*(TOG' 24) using [Jittor](https://github.com/Jittor/JNeRF) framework.
 
 # Environment Setup
@@ -22,6 +24,34 @@ pip install cupy-cuda113
 
 # Configuration Setup
 
+We provide an example config file for reconstruction stage: `JNeRF/projects/neuralto/configs/syn_gummybear_womask.py` 
+and an example config file for rendering stage: `JNeRF/projects/neuralto/configs/syn_gummybear_sss.py`
+The detailed explanation of these parameters can be found in these files.
+
+Our synthesis dataset can be downloaded from: [OneDrive url](https://1drv.ms/f/c/20a93f3338af3e61/EopYJfbUPcFNk9WsRaN4HXkBdzG-ndPMd7JsCdI-gX-tjA?e=Aq59gV)
+The structure of our dataset likes the following directory:
+```txt
+|- gummyber
+|  |- mask
+|     |- 0000.png
+|     |- 0001.png
+|     |- ...
+|  |- train
+|     |- 0000.png
+|     |- 0001.png
+|     |- ...
+|  |- test
+|     |- 0000.png
+|     |- 0001.png
+|     |- ...
+|  |- transforms_train.json
+|  |- transforms_val.json
+|
+|- ...
+```
+Before running the code, please ensure that you have properly organized the dataset and configured the `.conf` files
+
+[ ] TODO: Release the real data and dataset code for COLMAP dataset
 
 # Running
 
@@ -52,4 +82,21 @@ python tools/run_net.py \
        --config-file ./projects/neuralto/configs/syn_gummybear_sss.py \
        --type neuralTO_render \
        --task train
+```
+
+# Citation
+
+If you find our method helpful for your work, please consider to cite: 
+
+```txt
+@article{cai2024neuralto,
+  title={NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects},
+  author={Cai, Yuxiang and Qiu, Jiaxiong and Li, Zhong and Ren, Bo},
+  journal={ACM Transactions on Graphics (TOG)},
+  volume={43},
+  number={4},
+  pages={1--14},
+  year={2024},
+  publisher={ACM New York, NY, USA}
+}
 ```

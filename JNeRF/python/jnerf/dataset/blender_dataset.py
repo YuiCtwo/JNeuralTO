@@ -7,7 +7,9 @@ import json
 from glob import glob
 from scipy.spatial.transform import Rotation as Rot
 from scipy.spatial.transform import Slerp
+
 from jnerf.utils.registry import DATASETS
+from jnerf.utils.bbox_utils import get_bbox_from_mask
 
 
 @DATASETS.register_module()
@@ -261,3 +263,19 @@ class BlenderDatasetStage2(BlenderDataset):
         mask = cv.resize(mask, (self.W // resolution_level, self.H // resolution_level))
         mask = mask > 0.5
         return jt.array(mask)
+
+    def gen_masked_random_rays_at(self, img_idx, batch_size):
+        bbox_top, bbox_left, bbox_bottom, bbox_right = get_bbox_from_mask(self.masks[img_idx], enlarge=10)
+        pixels_x = jt.randint(low=bbox_left, high=bbox_right+1, shape=[batch_size])
+        pixels_y = jt.randint(low=bbox_top, high=bbox_bottom+1, shape=[batch_size])
+        color = self.images[img_idx][(pixels_y, pixels_x)]  # batch_size, 3
+        mask = self.masks[img_idx][(pixels_y, pixels_x)]  # batch_size, 3
+        point = jt.stack([pixels_x, pixels_y, jt.ones_like(pixels_y)], dim=-1).float()  # batch_size, 3
+        bs = point.shape[0]
+        point = jt.matmul(self.intrinsics_all_inv[img_idx, :3, :3].expand(bs, 1, 1), point[:, :, None])  # batch_size, 3
+        point = point.squeeze(dim=2)
+        rays_v = point / jt.norm(point, p=2, dim=-1, keepdim=True, eps=1e-6)  # batch_size, 3
+        rays_v = jt.matmul(self.pose_all[img_idx, :3, :3].expand(bs, 1, 1), rays_v[:, :, None])  # batch_size, 3
+        rays_v = rays_v.squeeze(dim=2)
+        rays_o = self.pose_all[img_idx, None, :3, 3].expand(rays_v.shape)  # batch_size, 3
+        return jt.concat([rays_o, rays_v, color, mask[:, :1]], dim=-1)  # batch_size, 10
