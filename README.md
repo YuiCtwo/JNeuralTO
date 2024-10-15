@@ -4,7 +4,7 @@
 
 Implementation of paper *NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects*(TOG' 24) using [Jittor](https://github.com/Jittor/JNeRF) framework.
 
-**Note: This repository is still incomplete and needs further update**
+**NOTE: This repository is still incomplete and needs further update**
 
 # Environment Setup
 
@@ -12,7 +12,7 @@ Please check the official JNeRF environment requirements before running our proj
 
 **This code only tested on version Jittor1.3.5, Ubuntu20.04, Cuda12.4**
 
-**NOTE! We meet a memory leaking bug in the newest version Jittor:1.3.8.5**
+**NOTE: We meet a memory leaking bug in the newest version Jittor:1.3.8.5, try a lower version if you have the same problem**
 
 ```bash
 conda create -n JNeuralTO python=3.7
