@@ -4,6 +4,8 @@
 
 Implementation of paper *NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects*(TOG' 24) using [Jittor](https://github.com/Jittor/JNeRF) framework.
 
+**Note: This repository is still incomplete and needs further update**
+
 # Environment Setup
 
 Please check the official JNeRF environment requirements before running our project and follow the installation command to set up a Jittor environment.
