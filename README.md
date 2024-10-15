@@ -6,7 +6,11 @@ Implementation of paper *NeuralTO: Neural Reconstruction and View Synthesis of T
 
 # Environment Setup
 
-Please check the official JNeRF environment requirements before running our project and follow the installation command to setup a Jittor environment.
+Please check the official JNeRF environment requirements before running our project and follow the installation command to set up a Jittor environment.
+
+**This code only tested on version Jittor1.3.5, Ubuntu20.04, Cuda12.4**
+
+**NOTE! We meet a memory leaking bug in the newest version Jittor:1.3.8.5**
 
 ```bash
 conda create -n JNeuralTO python=3.7

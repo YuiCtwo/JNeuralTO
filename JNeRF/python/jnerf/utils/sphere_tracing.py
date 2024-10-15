@@ -4,7 +4,7 @@ from jittor import nn
 class SphereTracer(nn.Module):
     """Implementing Sphere Tracing using Jittor"""
 
-    def __init__(self, sdf_threshold=2e-5,
+    def __init__(self, sdf_threshold=5e-5,
                  sphere_tracing_iters=32,
                  n_steps=128,
                  max_num_rays=200000):

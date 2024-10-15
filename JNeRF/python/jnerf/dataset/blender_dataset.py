@@ -8,6 +8,7 @@ from glob import glob
 from scipy.spatial.transform import Rotation as Rot
 from scipy.spatial.transform import Slerp
 
+from jnerf.utils.pose_utils import normalize_camera_poses_jt
 from jnerf.utils.registry import DATASETS
 from jnerf.utils.bbox_utils import get_bbox_from_mask
 
@@ -35,7 +36,7 @@ class BlenderDataset:
         self.images = jt.stack(imlist) / 255.0
 
         self.masks_lis = sorted(glob(os.path.join(self.data_dir, 'mask/*.png')))
-        self.masks = jt.stack([jt.array(cv.imread(im_name)) for im_name in self.masks_lis]) / 256.0
+        self.masks = jt.stack([jt.array(cv.imread(im_name)) for im_name in self.masks_lis]) / 255.0
 
         self.H, self.W = self.images.shape[1], self.images.shape[2]
         self.image_pixels = self.H * self.W
@@ -130,7 +131,7 @@ class BlenderDataset:
         # print(rays_o.shape)
         # print(color.shape)
         # print(mask.shape)
-        return jt.concat([rays_o, rays_v, color, mask[:, :1]], dim=-1)  # batch_size, 10
+        return jt.concat([rays_o, rays_v, color, mask[:, 0:1]], dim=-1)  # batch_size, 10
 
     def gen_rays_between(self, idx_0, idx_1, ratio, resolution_level=1):
         """
@@ -187,12 +188,23 @@ class BlenderDatasetStage2(BlenderDataset):
     def __init__(self, dataset_dir, d_type="train"):
         super().__init__(dataset_dir, d_type)
 
-        # self.images_np = self.images_np[..., ::-1].astype(np.float32)
-        # self.images = jt.array(self.images_np)
+        # self.n_images = len(self.images_lis)
+        # imlist = [cv.imread(im_name) for im_name in self.images_lis]
+        # for i in range(len(imlist)):
+        #     if len(imlist[i].shape) == 4:
+        #         imlist[i] = cv.cvtColor(imlist[i], cv.COLOR_BGRA2BGR)
+        #     imlist[i] = jt.array(cv.cvtColor(imlist[i], cv.COLOR_BGR2RGB))
+        #
+        # self.images = jt.stack(imlist) / 255.0
+        # strange, this code does not work
+        # print(self.images[0][400, 400])
+        self.images = self.images[..., ::-1]  # BGR -> RGB
+        # print(self.images[0][400, 400])
 
         # does not use normalize
-        # _, __, self.r_radius = normalize_camera_poses_jt(self.pose_origin, target_radius=1)
-        self.r_radius = 1
+        # self.r_radius = normalize_camera_poses_jt(self.pose_origin, target_radius=1)
+        self.r_radius = 1.2
+        # self.r_radius = 1
         # self.r_radius = 1 / (self.r_radius.numpy()[0])
         print(self.r_radius)
 
@@ -220,6 +232,27 @@ class BlenderDatasetStage2(BlenderDataset):
         rays_v = self.jt_matmul(self.pose_all[img_idx, None, None, :3, :3], rays_v[:, :, :, None]).squeeze(dim=3)  # W, H, 3
         rays_o = self.pose_all[img_idx, None, None, :3, 3].expand(rays_v.shape)  # W, H, 3
         return jt.concat([rays_o.transpose(0, 1), rays_v.transpose(0, 1), rays_v_norm.transpose(0, 1)], dim=-1)
+
+
+    def gen_ray_at_with_rgb(self, img_idx, factor=1):
+        l = int(1 / factor)
+        tx = jt.linspace(0, self.W - 1, self.W // l)
+        ty = jt.linspace(0, self.H - 1, self.H // l)
+        pixels_x, pixels_y = jt.meshgrid(tx, ty)
+        color = self.images[img_idx][(pixels_y, pixels_x)]  # batch_size, 3
+        p = jt.stack([pixels_x, pixels_y, jt.ones_like(pixels_y)], dim=-1)  # W, H, 3
+        p = self.jt_matmul(self.intrinsics_all_inv[img_idx, None, None, :3, :3], p[:, :, :, None]).squeeze(
+            dim=3)  # W, H, 3
+        rays_v_norm = jt.norm(p, dim=-1, keepdim=True)
+        rays_v = p / rays_v_norm  # W, H, 3
+        rays_v = self.jt_matmul(self.pose_all[img_idx, None, None, :3, :3], rays_v[:, :, :, None]).squeeze(
+            dim=3)  # W, H, 3
+        rays_o = self.pose_all[img_idx, None, None, :3, 3].expand(rays_v.shape)  # W, H, 3
+        # write image: HxWx3
+        return jt.concat([rays_o.transpose(0, 1),
+                          rays_v.transpose(0, 1),
+                          rays_v_norm.transpose(0, 1),
+                          color.transpose(0, 1)], dim=-1)
 
     def get_radii(self, img_idx):
         C2W = self.pose_all[img_idx, ...]
@@ -274,8 +307,9 @@ class BlenderDatasetStage2(BlenderDataset):
         bs = point.shape[0]
         point = jt.matmul(self.intrinsics_all_inv[img_idx, :3, :3].expand(bs, 1, 1), point[:, :, None])  # batch_size, 3
         point = point.squeeze(dim=2)
-        rays_v = point / jt.norm(point, p=2, dim=-1, keepdim=True, eps=1e-6)  # batch_size, 3
+        rays_d_norm = jt.norm(point, p=2, dim=-1, keepdim=True, eps=1e-6)
+        rays_v = point / rays_d_norm  # batch_size, 3
         rays_v = jt.matmul(self.pose_all[img_idx, :3, :3].expand(bs, 1, 1), rays_v[:, :, None])  # batch_size, 3
         rays_v = rays_v.squeeze(dim=2)
         rays_o = self.pose_all[img_idx, None, :3, 3].expand(rays_v.shape)  # batch_size, 3
-        return jt.concat([rays_o, rays_v, color, mask[:, :1]], dim=-1)  # batch_size, 10
+        return jt.concat([rays_o, rays_v, rays_d_norm, color, mask[:, 0:1]], dim=-1)  # batch_size, 10

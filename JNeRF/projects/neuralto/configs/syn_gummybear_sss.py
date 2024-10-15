@@ -1,13 +1,13 @@
 optim = dict(
     material=dict(
         type='Adam',
-        lr=2e-4,
+        lr=1e-4,
         eps=1e-15,
         betas=(0.9, 0.99),
     ),
     render=dict(
         type='Adam',
-        lr=2e-4,
+        lr=5e-4,
         eps=1e-15,
         betas=(0.9, 0.99),
     ),
@@ -34,15 +34,17 @@ dataset = dict(
 )
 
 encoder = dict(
-    nerf_pos_encoder=dict(
+    sss_p_encoder=dict(
         type='FrequencyEncoder',
-        multires=10,
-        input_dims=4,
-    ),
-    nerf_dir_encoder=dict(
-        type='FrequencyEncoder',
-        multires=4,
         input_dims=3,
+        include_input=False,
+        multires=2,
+    ),
+    sss_l_encoder=dict(
+        type='FrequencyEncoder',
+        input_dims=3,
+        include_input=False,
+        multires=6,
     ),
     sdf_encoder=dict(
         type='FrequencyEncoder',
@@ -76,7 +78,7 @@ loss = dict(
 lr = dict(
     material=2e-4,
     geometry=1e-7,
-    render=2e-4,
+    render=5e-4,
     light=2e-4
 )
 
@@ -136,13 +138,12 @@ light = dict(
 
 render = dict(
     add_ss="all",
-    MipSSS=dict(
-        mipmap_scale = 0.577,
-        dirs_multires = 4,
-        points_multires = 10,
-        predict_sigma = True,
-        predict_color = True
-    )
+    nerf_num_samples=32,
+    sphere_num_samples=64,
+    mipmap_level=4,
+    mipmap_scale = 0.577,
+    predict_sigma = True,
+    predict_color = True
 )
 
 
@@ -150,10 +151,10 @@ base_exp_dir = './log/gummybear_s2/womask'
 recording = ['./', './models']
 save_freq = 10000
 batch_size = 100
-end_iter = 50001
+end_iter = 30001
 report_freq = 1000
-val_freq = 5000
+val_freq = 1000
 log_freq = 5000
 
-use_mask = True  # make sure that you have a mask!
+use_mask = False  # make sure that you have a mask!
 background_color = None

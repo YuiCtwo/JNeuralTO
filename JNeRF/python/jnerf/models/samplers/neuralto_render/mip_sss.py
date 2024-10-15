@@ -4,6 +4,7 @@ import numpy as np
 
 from jnerf.models.samplers.neuralto_render.recon_renderer import laplace
 from jnerf.utils.miputils import conical_frustum_to_gaussian, integrated_pos_enc
+from jnerf.utils.registry import build_from_cfg, ENCODERS
 from jnerf.utils.sh import HardCodedSH
 from jnerf.models.position_encoders.freq_encoder import FrequencyEncoder
 
@@ -27,27 +28,27 @@ def standard_fibonacci_sampling_np(num_samples):
     return points
 
 def dot_product(a, b):
-    return jt.sum(jt.mul(a, b), dim=-1, keepdim=True)
-
+    return jt.sum(jt.mul(a, b), dim=-1, keepdims=True)
 
 def normalize(a):
-    return jt.div(a, a.norm(dim=-1, keepdim=True) + 1e-10)
+    return jt.divide(a, a.norm(dim=-1, keepdim=True) + 1e-10)
 
 class MipSSS(nn.Module):
 
     def __init__(self,
+        encoder_cfg,
         nerf_num_samples=32,
         mipmap_scale=0.8,
         mipmap_level=4,
         sphere_num_samples=64,
         predict_sigma=False,
         predict_color=True,
-        dirs_multires=2,
-        points_multires=10
+        # dirs_multires=2,
+        # points_multires=6
     ):
         super().__init__()
         self.nerf_num_samples = nerf_num_samples
-        self.mipmap_scale = 0.8  # 2 / sqrt(12)
+        self.mipmap_scale = mipmap_scale  # 2 / sqrt(12)
         self.mipmap_level = mipmap_level
         self.sh_band = 3
         self.sphere_num_samples = sphere_num_samples
@@ -58,27 +59,31 @@ class MipSSS(nn.Module):
         self.sca_feature_dim = 64
 
         self.dirs_input_dim = 3
-        self.dirs_multires = dirs_multires
+        # self.dirs_multires = dirs_multires
 
         self.points_input_dim = 3
-        self.points_multires = points_multires
+        # self.points_multires = points_multires
 
         # ========= original nerf
         self.density_activation = nn.Sequential(*[
             nn.Linear(self.feature_dim+1, 1),
-            jt.nn.Softplus(),
+            nn.Softplus(),
         ])
         self.relu = nn.ReLU()
 
-        self.l_embedder = FrequencyEncoder(
-            multires=self.dirs_multires,
-            input_dims=3,
-            include_input=False)
+        self.l_embedder = build_from_cfg(encoder_cfg.sss_l_encoder, ENCODERS)
+        # self.l_embedder = FrequencyEncoder(
+        #     multires=self.dirs_multires,
+        #     input_dims=3,
+        #     include_input=False)
+        self.points_multires = encoder_cfg.sss_p_encoder.multires
+
         self.l_input_dim = self.l_embedder.out_dim
-        self.p_embedder = FrequencyEncoder(
-            multires=self.points_multires,
-            input_dims=3,
-            include_input=False)
+        self.p_embedder = build_from_cfg(encoder_cfg.sss_p_encoder, ENCODERS)
+        # self.p_embedder = FrequencyEncoder(
+        #     multires=self.points_multires,
+        #     input_dims=3,
+        #     include_input=False)
         self.points_input_dim = self.p_embedder.out_dim
 
         self.F_dim = self.points_input_dim
@@ -219,7 +224,7 @@ class MipSSS(nn.Module):
 
         Lm = jt.zeros_like(L)
         for i, sh_w in enumerate(jt.split(sh_weights, 16, dim=-1)):
-            S = jt.clamp(nn.bmm(sh_w, sh_radiance))
+            S = jt.clamp(nn.bmm(sh_w, sh_radiance), min_v=0.001)
             Lm[:, :, i] = jt.mean(S, dim=-1)
 
         Lm = Lm * albedo

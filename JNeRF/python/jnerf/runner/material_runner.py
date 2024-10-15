@@ -1,3 +1,4 @@
+import gc
 import glob
 from copy import deepcopy
 
@@ -7,13 +8,24 @@ import os
 import numpy as np
 import tqdm
 
-from jnerf.models.networks.neuralto_network import NeuralTOMaterial, SDFNetwork
+from jnerf.models.networks.neuralto_network import SDFNetwork
 from jnerf.utils.sphere_tracing import SphereTracer
 from jittor import nn
 from jnerf.models.samplers.neuralto_render import NeuralTOScatterRenderer
 
 from jnerf.utils.config import get_cfg
 from jnerf.utils.registry import build_from_cfg, NETWORKS, DATASETS, OPTIMS, SAMPLERS
+from icecream import ic
+
+
+
+def jt_empty_cache():
+    # jt.clean_graph()
+    jt.sync_all()
+    jt.gc()
+    gc.collect()
+    # jt.display_memory_info()
+    # jt.display_memory_info()
 
 class CoLocatedPointLight(nn.Module):
     def __init__(self, init_light_intensity=5.0):
@@ -48,22 +60,13 @@ def intersect_sphere(ray_o, ray_d, r):
     return mask_intersect, jt.clamp(d1 - d2, min_v=0.0), d1 + d2
 
 def masked_l1_rgb_loss(pred, gt, mask):
-    # mask_sum = mask.sum() + 1e-6
-    color_error = (pred - gt) * mask
-    color_fine_loss = nn.l1_loss(color_error, jt.zeros_like(color_error))
+    color_fine_loss = nn.l1_loss(pred * mask, gt * mask)
     return color_fine_loss
 
-def mse2psnr(x): return -10. * jt.log(x) / jt.log(jt.array(np.array([10.])))
-def img2mse(x, y): return jt.mean((x - y) ** 2)
-
 def masked_psnr(pred, gt, mask):
-    mse = img2mse(pred*mask, gt*mask)
-    return mse2psnr(mse)
-
-# def masked_psnr(pred, gt, mask):
-#     mask_sum = mask.sum() + 1e-6
-#     psnr = 20.0 * log10(1.0 / (((pred - gt) ** 2 * mask).sum() / (mask_sum * 3.0)).sqrt())
-#     return psnr
+    mask_sum = mask.sum() + 1e-6
+    psnr = 20.0 * log10(1.0 / (((pred - gt) ** 2 * mask).sum() / (mask_sum * 3.0)).sqrt())
+    return psnr
 
 
 class NeuralTOMaterialRunner:
@@ -256,6 +259,7 @@ class NeuralTOMaterialRunner:
             
         except Exception as e:
             print("Load failed due to: ", e)
+        del ckpt
 
     def load_ckpt(self):
         if self.ckpt is None:
@@ -292,7 +296,7 @@ class NeuralTOMaterialRunner:
        
         self.light_model = CoLocatedPointLight(**self.conf.light)
         
-        self.render_model = NeuralTOScatterRenderer(**self.conf.render)
+        self.render_model = NeuralTOScatterRenderer(self.conf.encoder, **self.conf.render)
         # self.scattering_model = MipSSS()
         # self.render_model.network_setup(self.scattering_model)
         # self.render_model_param = list(self.render_model.parameters())
@@ -318,25 +322,33 @@ class NeuralTOMaterialRunner:
 
     def init_optimizer(self):
         material_optimizer = build_from_cfg(self.conf.optim.material, OPTIMS, params=self.material_model.parameters())
-        sdf_optimizer = build_from_cfg(self.conf.optim.sdf, OPTIMS, params=self.geometry_model.parameters())
+        # sdf_optimizer = build_from_cfg(self.conf.optim.sdf, OPTIMS, params=self.geometry_model.parameters())
         render_optimizer = build_from_cfg(self.conf.optim.render, OPTIMS, params=self.render_model.parameters())
         light_optimizer = build_from_cfg(self.conf.optim.light, OPTIMS, params=self.light_model.parameters())
+        # optimizer_list = []
+        # optimizer_list += list(self.material_model.parameters())
+        # optimizer_list += list(self.light_model.parameters())
+        # optimizer_list += list(self.geometry_model.parameters())
+        # optimizer_list += list(self.render_model.parameters())
 
-        self.optimizer_dict["sdf_optimizer"] = sdf_optimizer
+        # self.optimizer_dict["sdf_optimizer"] = sdf_optimizer
         self.optimizer_dict["material_optimizer"] = material_optimizer
         self.optimizer_dict["render_optimizer"] = render_optimizer
         self.optimizer_dict["light_optimizer"] = light_optimizer
+        # self.optimizer = build_from_cfg(self.conf.optim.material, OPTIMS, params=optimizer_list)
 
     def train(self):
+        # import tracemalloc
+        # tracemalloc.start()
         for it in tqdm.tqdm(range(self.num_iters)):
             self.render_model.dist = self.dist_training
             self.cur_iter = it
             # gen random idx
             idx = np.random.randint(0, self.n_training_images - 1)
-            if self.use_mask:
-                data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
-            else:
-                data = self.train_dataset.gen_random_rays_at(idx, self.patch_size ** 2)
+            # if self.use_mask:
+            data = self.train_dataset.gen_masked_random_rays_at(idx, self.patch_size ** 2)
+            # else:
+            #     data = self.train_dataset.gen_random_rays_at(idx, self.patch_size ** 2)
             rays_o, rays_d, rays_d_norm, true_rgb, mask = (
                 data[:, :3],
                 data[:, 3:6],
@@ -344,6 +356,7 @@ class NeuralTOMaterialRunner:
                 data[:, 7:10],
                 data[:, 10:11],
             )
+            # print(mask.shape)
             gt_mask = mask.bool()
             # set radius for mipmap_r
             r = self.train_dataset.get_radii(idx)
@@ -352,15 +365,15 @@ class NeuralTOMaterialRunner:
             results = self.render_camera(rays_o, rays_d, rays_d_norm)
 
             # loss
-            img_loss = jt.Var([0.0])
-            roughrange_loss = jt.Var([0.0])
-            eik_loss = jt.Var([0.0])
-            loss = jt.Var([0.0])
+            # img_loss = jt.Var([0.0])
+            # roughrange_loss = jt.Var([0.0])
+            # eik_loss = jt.Var([0.0])
+            # loss = jt.Var([0.0])
 
             # if not self.use_mask:
             if self.use_mask:
-                gt_mask = gt_mask.squeeze(-1)
-                true_rgb[~gt_mask] = 0
+                # gt_mask = gt_mask.squeeze(-1)
+                true_rgb[jt.logical_not(gt_mask)] = 0
             # use gt mask for supervised
             mask = results["convergent_mask"].unsqueeze(-1)
             if mask.any():
@@ -375,22 +388,32 @@ class NeuralTOMaterialRunner:
                 # add_eik_grad = self.geometry_model.gradient(eik_points).view(-1, 3)
                 # add_eik_cnt = add_eik_grad.shape[0]
                 # eik_loss = (((add_eik_grad.norm(dim=-1) - 1) ** 2).sum() / add_eik_cnt) * self.eik_weight
-                eik_grad = results["grad_loss"][mask.squeeze(-1)]
-                eik_cnt = eik_grad.shape[0]
-                eik_loss = (eik_grad.sum() / eik_cnt) * self.eik_weight
+                # eik_grad = results["grad_loss"][mask.squeeze(-1)]
+                # eik_cnt = eik_grad.shape[0]
+                # eik_loss = (eik_grad.sum() / eik_cnt) * self.eik_weight
                 # ========================
                 # ignore smoothness loss
-                loss = img_loss + roughrange_loss + eik_loss
-
+                loss = img_loss + roughrange_loss
                 for one in self.optimizer_dict:
                     self.optimizer_dict[one].zero_grad()
                     self.optimizer_dict[one].backward(loss, retain_graph=True)
                     self.optimizer_dict[one].step()
+                # self.optimizer.zero_grad()
+                # self.optimizer.backward(loss)
+                # self.optimizer.step()
+
+                if self.cur_iter % self.report_freq == 0:
+                    ic(
+                        self.cur_iter,
+                        loss.item(),
+                        img_loss.item(),
+                        roughrange_loss.item(),
+                        self.light_model().item()
+                    )
 
             if self.cur_iter % self.save_freq == 0:
                 self.save_ckpt()
 
-            # TODO: add a report here
             # clean cache
             for x in list(results.keys()):
                 del results[x]
@@ -406,6 +429,15 @@ class NeuralTOMaterialRunner:
                     idx = np.random.randint(0, self.n_training_images-1)
                     self.validate_image(idx=idx, dataset_type="train")
 
+            # this function is important. if deleted, the memory will increase untill... boom!
+            jt_empty_cache()
+
+            # snapshot = tracemalloc.take_snapshot()  # 内存摄像
+            # top_stats = snapshot.statistics('lineno')  # 内存占用数据获取
+            # print(f'[Handle user{it} Top 10]')
+            # for stat in top_stats[:10]:  # 打印占用内存最大的10个子进程
+            #     print(stat)
+
     def validate_image(self, factor=0.20, idx=0, dataset_type="val"):
         self.render_model.dist = self.dist_val
 
@@ -414,12 +446,13 @@ class NeuralTOMaterialRunner:
         else:
             dataset = self.train_dataset
 
+        # data = dataset.gen_ray_at_with_rgb(idx, factor=factor)
         data = dataset.gen_rays_at(idx, factor=factor)
         # rays_o : HxWx3
         rays_o, rays_d, rays_d_norm = (
             data[..., :3],
             data[..., 3:6],
-            data[..., 6:7],
+            data[..., 6:7]
         )
         gt_color_resized = dataset.image_at(idx, factor)
         r = dataset.get_radii(idx)
@@ -428,16 +461,18 @@ class NeuralTOMaterialRunner:
         results = self.render_camera(rays_o, rays_d, rays_d_norm)
 
         for x in list(results.keys()):
-            results[x] = results[x].detach().cpu().numpy()
+            results[x] = results[x].detach().numpy()
 
         gt_color_im = gt_color_resized
+
         color_im = results["color"]
+        # print(color_im.shape)
         diffuse_color_im = results["diffuse_color"]
         specular_color_im = results["specular_color"]
         normal = results["normal"]
         normal = normal / (np.linalg.norm(normal, axis=-1, keepdims=True) + 1e-10)
         normal_im = (normal + 1.0) / 2.0
-        back_normal_im = (results["back_normal"] + 1.0) / 2
+        back_normal_im = (results["back_normal"] + 1.0) / 2.0
         diffuse_albedo_im = results["diffuse_albedo"]
         specular_albedo_im = results["specular_albedo"]
 
@@ -455,10 +490,11 @@ class NeuralTOMaterialRunner:
             imageio.imwrite(os.path.join(self.out_dir, f"logim_{self.cur_iter}_{idx}.png"), to8b(im))
         else:
             img_name = dataset_type + str(idx)
+            # imageio.imwrite(os.path.join(self.out_dir, f"gt_{img_name}.png"), to8b(color.cpu().numpy()))
             imageio.imwrite(os.path.join(self.out_dir, f"{img_name}.png"), to8b(color_im))
         # compute psnr and record it
         color_im_jt = jt.Var(color_im)
-        gt_color_jt = jt.Var(gt_color_im).float()
+        gt_color_jt = jt.Var(gt_color_im)
 
         if self.use_mask:
             gt_mask_jt = dataset.mask_at(idx, factor)
@@ -552,6 +588,7 @@ class NeuralTOMaterialRunner:
             rays_t = rays_d
 
             mask_intersect_split, min_dis, max_dis = intersect_sphere(points, -rays_t, r=self.train_dataset.r_radius)
+
             symmetry_points = points + max_dis[..., None] * rays_t
             min_dis_split = jt.zeros_like(min_dis)
             max_dis_split = jt.ones_like(max_dis)
@@ -570,9 +607,9 @@ class NeuralTOMaterialRunner:
             sdf_split, feature_split, normal_split = self.geometry_model.get_all(far_p, is_training=self.is_training)
 
             back_normal = normal_split / normal_split.norm(dim=-1, keepdim=True)
-
+            # print(back_normal)
             
-            thickness = jt.sqrt(jt.sum(jt.pow(points - far_p, 2), dim=-1, keepdim=True))
+            thickness = jt.sqrt(jt.sum(jt.pow(points - far_p, 2), dim=-1, keepdims=True))
             surf_distance = (points - rays_o).norm(dim=-1, keepdim=True)
             results = self.render_model(
                 self.light_model, self.geometry_model,

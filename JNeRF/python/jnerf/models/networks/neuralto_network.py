@@ -111,16 +111,17 @@ class SDFNetwork(nn.Module):
 
     def get_all(self, x, is_training=True):
         with jt.enable_grad():
+            x.start_grad()
             tmp = self.execute(x)
             y, feature = tmp[:, :1], tmp[:, 1:]
             gradients = jt.grad(
                 y,
                 x,
                 retain_graph=True)
-            # if not is_training:
-            #     return y.detach(), feature.detach(), gradients.detach()
-            # else:
-            return y, feature, gradients
+            if not is_training:
+                return y.detach(), feature.detach(), gradients.detach()
+            else:
+                return y, feature, gradients
 
 
 # This implementation is borrowed from IDR: https://github.com/lioryariv/idr

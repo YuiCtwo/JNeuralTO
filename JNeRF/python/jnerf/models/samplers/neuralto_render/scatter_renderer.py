@@ -30,9 +30,15 @@ class MaterialPredictor(nn.Module):
 
 class NeuralTOScatterRenderer(nn.Module):
 
-    def __init__(self, *args, **kw):
+    def __init__(self, encoder_cfg, add_ss=False,
+                 nerf_num_samples=32,
+                 mipmap_scale=0.8,
+                 mipmap_level=4,
+                 sphere_num_samples=64,
+                 predict_sigma=False,
+                 predict_color=True):
         # light model and render model
-        super().__init__(*args, **kw)
+        super().__init__()
         self.render_model = None
         # This specified param is For Testing Only!
         self.laplace_beta = 8.067957423918415e-06
@@ -43,9 +49,15 @@ class NeuralTOScatterRenderer(nn.Module):
         self.dist = 1.0
         self.r = 1.0
         self.ior = 1.25
-        self.add_ss = kw["add_ss"]
+        self.add_ss = add_ss
         self.tone_mapping = None
-        self.render_model = MipSSS(**(kw["MipSSS"]))
+        self.render_model = MipSSS(encoder_cfg,
+                                   nerf_num_samples,
+                                   mipmap_scale,
+                                   mipmap_level,
+                                   sphere_num_samples,
+                                   predict_sigma,
+                                   predict_color)
     
     def network_setup(self, scatter_model):
         self.render_model = scatter_model
@@ -60,7 +72,7 @@ class NeuralTOScatterRenderer(nn.Module):
         # render specular
         # =================
         light_intensity = light / (surf_distance * surf_distance + 1e-10)
-        dot = jt.sum(viewdir * surf_normal, dim=-1, keepdim=True)
+        dot = jt.sum(viewdir * surf_normal, dim=-1, keepdims=True)
         dot = jt.clamp(dot, min_v=0.00001, max_v=0.99999)  # must be very precise; cannot be 0.999
         alpha = specular_roughness
         cosTheta2 = dot * dot
@@ -93,7 +105,7 @@ class NeuralTOScatterRenderer(nn.Module):
         # Fake ss
         Fss90 = 1 * 1 * alpha  # cos(half-vector, wi)*cos(half-vector, wo)*alpha
         Fss = (1 + (Fss90 - 1) * F) * (1 + (Fss90 - 1) * F)
-        dot_abs = jt.abs(jt.sum(viewdir * surf_normal, dim=-1, keepdim=True))
+        dot_abs = jt.abs(jt.sum(viewdir * surf_normal, dim=-1, keepdims=True))
         S = 1.25 * (Fss * (1 / (dot_abs + dot_abs) - 0.5) + 0.5)
         fr = S / np.pi
         surf_color = diffuse_albedo * fr * (light_intensity * dot)
