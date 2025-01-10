@@ -35,9 +35,11 @@ and an example config file for rendering stage: `JNeRF/projects/neuralto/configs
 The detailed explanation of these parameters can be found in these files.
 
 Our synthesis dataset can be downloaded from: [OneDrive url](https://1drv.ms/f/c/20a93f3338af3e61/EopYJfbUPcFNk9WsRaN4HXkBdzG-ndPMd7JsCdI-gX-tjA?e=Aq59gV)
+We provide the mesh in of the objects used in our paper `gt_mesh` file. Note that "dragon2.obj" is the model of "ancient dragon" in our paper.
+
 The structure of our dataset likes the following directory:
 ```txt
-|- gummyber
+|- gummybear
 |  |- mask
 |     |- 0000.png
 |     |- 0001.png
