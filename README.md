@@ -2,7 +2,7 @@
 
 ![](./assets/teaser_compress.png)
 
-Implementation of paper *NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects*(TOG' 24) using [Jittor](https://github.com/Jittor/JNeRF) framework.
+Implementation of paper [*NeuralTO: Neural Reconstruction and View Synthesis of Translucent Objects*](http://ren-bo.net/papers/cyx_tog2024.pdf)(TOG' 24) using [Jittor](https://github.com/Jittor/JNeRF) framework.
 
 **NOTE: This repository is still incomplete and needs further update**
 
