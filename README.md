@@ -106,3 +106,7 @@ If you find our method helpful for your work, please consider to cite:
   publisher={ACM New York, NY, USA}
 }
 ```
+
+# License
+
+Our repo itself is under [Apache License](https://www.apache.org/licenses/LICENSE-2.0). Howerver, you should examine licenses used by Jittor and JNeRF carefully.
